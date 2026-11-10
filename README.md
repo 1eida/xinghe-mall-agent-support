@@ -2,6 +2,29 @@
 
 基于 LangGraph、FastAPI 和 Streamlit 的文字客服，保留政策检索、订单查询、退款资格判断、人工确认工单和会话恢复。支持真实 Qwen 工具调用及无需模型 API 的 Mock 模式，订单、工单与会话使用 SQLite。
 
+## 架构
+
+```mermaid
+flowchart LR
+    U[用户] --> UI[Streamlit 页面]
+    UI --> C[HTTP 客户端]
+    C -->|SSE 流式请求| API[FastAPI 服务]
+    API --> G[LangGraph 客服 Agent]
+    G --> L{运行模式}
+    L -->|Qwen| Q[Qwen 模型]
+    L -->|Mock| M[本地规则 Agent]
+    Q --> T[客服工具]
+    M --> T
+    T --> P[政策检索\nBGE + Chroma]
+    T --> D[订单、退款与工单\nSQLite]
+    API --> S[会话检查点\nSQLite]
+    G --> API
+    API --> C
+    C --> UI
+```
+
+核心流程：政策问题进入本地知识库检索；订单与退款请求先完成身份校验；创建工单会暂停等待用户确认；对话状态保存在 SQLite，支持后续恢复。
+
 ## 本地运行
 
 安装 Python 3.12+ 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)，在仓库根目录执行：
