@@ -2,17 +2,17 @@ from unittest.mock import patch
 
 import pytest
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
+from langchain_core.messages import ChatMessage as LangChainChatMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, MessagesState, StateGraph
 from langgraph.types import StreamWriter
 
 from agents.agents import Agent
-from agents.utils import CustomData
 from client import AgentClient
 from schema.schema import ChatMessage
 from service.utils import langchain_to_chat_message
 
-START_MESSAGE = CustomData(type="start", data={"key1": "value1", "key2": 123})
+START_MESSAGE = LangChainChatMessage(content=[{"key1": "value1", "key2": 123}], role="custom")
 
 STATIC_MESSAGES = [
     AIMessage(
@@ -27,13 +27,11 @@ STATIC_MESSAGES = [
     ),
     ToolMessage(content="42", tool_call_id="test_call_id"),
     AIMessage(content="The answer is 42"),
-    CustomData(type="end", data={"time": "end"}).to_langchain(),
+    LangChainChatMessage(content=[{"time": "end"}], role="custom"),
 ]
 
 
-EXPECTED_OUTPUT_MESSAGES = [
-    langchain_to_chat_message(m) for m in [START_MESSAGE.to_langchain()] + STATIC_MESSAGES
-]
+EXPECTED_OUTPUT_MESSAGES = [langchain_to_chat_message(m) for m in [START_MESSAGE] + STATIC_MESSAGES]
 
 
 def test_messages_conversion() -> None:
@@ -69,7 +67,7 @@ def test_messages_conversion() -> None:
 
 
 async def static_messages(state: MessagesState, writer: StreamWriter) -> MessagesState:
-    START_MESSAGE.dispatch(writer)
+    writer(START_MESSAGE)
     return {"messages": STATIC_MESSAGES}
 
 
@@ -84,6 +82,7 @@ static_agent = agent.compile(checkpointer=MemorySaver())
 def mock_database_settings(mock_env):
     """Fixture to ensure database settings are clean"""
     with patch("memory.settings") as mock_settings:
+        mock_settings.SQLITE_DB_PATH = ":memory:"
         yield mock_settings
 
 
@@ -106,6 +105,7 @@ def test_agent_stream(mock_database_settings, mock_httpx):
             if isinstance(response, ChatMessage):
                 messages.append(response)
 
-    for expected, actual in zip(EXPECTED_OUTPUT_MESSAGES, messages):
+    assert len(messages) == len(EXPECTED_OUTPUT_MESSAGES)
+    for expected, actual in zip(EXPECTED_OUTPUT_MESSAGES, messages, strict=True):
         actual.run_id = None
         assert expected == actual

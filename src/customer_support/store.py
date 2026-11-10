@@ -1,9 +1,4 @@
-"""Small SQLite business database for the first runnable demo.
-
-The production iteration will move the same schema behind SQLAlchemy/MySQL.
-Keeping this first version in the Python standard library makes the business
-flow testable before Docker or external services are introduced.
-"""
+"""SQLite storage for demo orders and confirmed support tickets."""
 
 from __future__ import annotations
 
@@ -16,11 +11,6 @@ from typing import Any
 from uuid import uuid4
 
 DEFAULT_DB_PATH = Path(os.getenv("CUSTOMER_SUPPORT_DB_PATH", "data/customer_support.db"))
-
-
-def _use_mysql(db_path: str | Path | None = None) -> bool:
-    """Use MySQL in Docker, while explicit test database paths stay on SQLite."""
-    return db_path is None and os.getenv("BUSINESS_DATABASE_TYPE", "sqlite").lower() == "mysql"
 
 
 def _connect(db_path: str | Path | None = None) -> sqlite3.Connection:
@@ -91,19 +81,6 @@ def get_order_status(
     db_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Return an order only after the simple demo identity check succeeds."""
-    if _use_mysql(db_path):
-        from customer_support.mysql_store import get_order_status as get_mysql_order
-
-        return get_mysql_order(order_id, phone_last4)
-
-    from customer_support.olist_store import (
-        get_olist_order_status,
-        is_olist_order_id,
-    )
-
-    if is_olist_order_id(order_id):
-        return get_olist_order_status(order_id, phone_last4)
-
     initialize_database(db_path)
     with closing(_connect(db_path)) as connection:
         row = connection.execute(
@@ -137,19 +114,6 @@ def refund_eligibility(
     db_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Evaluate the intentionally simple seven-day demo policy."""
-    if _use_mysql(db_path):
-        from customer_support.mysql_store import refund_eligibility as mysql_refund_eligibility
-
-        return mysql_refund_eligibility(order_id, phone_last4)
-
-    from customer_support.olist_store import (
-        is_olist_order_id,
-        olist_refund_eligibility,
-    )
-
-    if is_olist_order_id(order_id):
-        return olist_refund_eligibility(order_id, phone_last4)
-
     order = get_order_status(order_id, phone_last4, db_path)
     if not order["ok"]:
         return order
@@ -190,29 +154,6 @@ def create_support_ticket(
     db_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Create one ticket per idempotency key."""
-    if _use_mysql(db_path):
-        from customer_support.mysql_store import create_support_ticket as create_mysql_ticket
-
-        return create_mysql_ticket(
-            order_id=order_id,
-            category=category,
-            summary=summary,
-            idempotency_key=idempotency_key,
-        )
-
-    from customer_support.olist_store import (
-        create_olist_support_ticket,
-        is_olist_order_id,
-    )
-
-    if is_olist_order_id(order_id):
-        return create_olist_support_ticket(
-            order_id=order_id,
-            category=category,
-            summary=summary,
-            idempotency_key=idempotency_key,
-        )
-
     initialize_database(db_path)
     with closing(_connect(db_path)) as connection:
         existing = connection.execute(

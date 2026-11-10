@@ -18,7 +18,6 @@ COPY src/memory/ ./memory/
 COPY src/schema/ ./schema/
 COPY src/service/ ./service/
 COPY src/run_service.py ./
-COPY scripts/migrate_sqlite_to_mysql.py ./scripts/migrate_sqlite_to_mysql.py
 COPY data/policies/ ./data/policies/
 
 EXPOSE 8080

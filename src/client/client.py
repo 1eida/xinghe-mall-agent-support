@@ -9,7 +9,6 @@ from schema import (
     ChatHistory,
     ChatHistoryInput,
     ChatMessage,
-    Feedback,
     ServiceMetadata,
     StreamInput,
     UserInput,
@@ -110,7 +109,7 @@ class AgentClient:
         if thread_id:
             request.thread_id = thread_id
         if model:
-            request.model = model  # type: ignore[assignment]
+            request.model = model
         if agent_config:
             request.agent_config = agent_config
         if user_id:
@@ -156,7 +155,7 @@ class AgentClient:
         if thread_id:
             request.thread_id = thread_id
         if model:
-            request.model = model  # type: ignore[assignment]
+            request.model = model
         if agent_config:
             request.agent_config = agent_config
         if user_id:
@@ -235,7 +234,7 @@ class AgentClient:
         if user_id:
             request.user_id = user_id
         if model:
-            request.model = model  # type: ignore[assignment]
+            request.model = model
         if agent_config:
             request.agent_config = agent_config
         try:
@@ -290,7 +289,7 @@ class AgentClient:
         if thread_id:
             request.thread_id = thread_id
         if model:
-            request.model = model  # type: ignore[assignment]
+            request.model = model
         if agent_config:
             request.agent_config = agent_config
         if user_id:
@@ -313,30 +312,6 @@ class AgentClient:
                             # Don't yield empty string tokens as they cause generator issues
                             if parsed != "":
                                 yield parsed
-            except httpx.HTTPError as e:
-                raise AgentClientError(f"Error: {e}")
-
-    async def acreate_feedback(
-        self, run_id: str, key: str, score: float, kwargs: dict[str, Any] = {}
-    ) -> None:
-        """
-        Create a feedback record for a run.
-
-        This is a simple wrapper for the LangSmith create_feedback API, so the
-        credentials can be stored and managed in the service rather than the client.
-        See: https://api.smith.langchain.com/redoc#tag/feedback/operation/create_feedback_api_v1_feedback_post
-        """
-        request = Feedback(run_id=run_id, key=key, score=score, kwargs=kwargs)
-        async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(
-                    f"{self.base_url}/feedback",
-                    json=request.model_dump(),
-                    headers=self._headers,
-                    timeout=self.timeout,
-                )
-                response.raise_for_status()
-                response.json()
             except httpx.HTTPError as e:
                 raise AgentClientError(f"Error: {e}")
 

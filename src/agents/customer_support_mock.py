@@ -96,10 +96,7 @@ async def customer_support_node(state: CustomerSupportState) -> CustomerSupportS
         }
         return {
             "messages": [
-                _ai(
-                    f"即将为订单 {order_id} 创建售后工单。"
-                    "这是写入操作，请回复“确认”或“取消”。"
-                )
+                _ai(f"即将为订单 {order_id} 创建售后工单。这是写入操作，请回复“确认”或“取消”。")
             ],
             "pending_ticket": pending_ticket,
         }
@@ -129,10 +126,7 @@ async def customer_support_node(state: CustomerSupportState) -> CustomerSupportS
             return {"messages": [_ai(result["error"])]}
         return {
             "messages": [
-                _ai(
-                    f"订单 {order_id}：{result['product_name']}，当前状态为"
-                    f"“{result['status']}”。"
-                )
+                _ai(f"订单 {order_id}：{result['product_name']}，当前状态为“{result['status']}”。")
             ]
         }
 

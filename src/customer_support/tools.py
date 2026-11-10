@@ -1,4 +1,4 @@
-"""Business tools that will later be bound to the real LLM."""
+"""Business tools used by the Qwen customer-support agent."""
 
 from __future__ import annotations
 
@@ -22,13 +22,13 @@ def search_policy_tool(query: str) -> dict:
 
 @tool("get_order_status")
 def get_order_status_tool(order_id: str, phone_last4: str) -> dict:
-    """Get an ORD1001 or OL099422 order after phone-last-four verification."""
+    """Get a demo order such as ORD1001 after phone-last-four verification."""
     return get_order_status(order_id, phone_last4)
 
 
 @tool("check_refund_eligibility")
 def check_refund_eligibility_tool(order_id: str, phone_last4: str) -> dict:
-    """Check an ORD or OL order against the demo seven-day refund policy."""
+    """Check a demo order against the demo seven-day refund policy."""
     return refund_eligibility(order_id, phone_last4)
 
 

@@ -206,7 +206,7 @@ class PolicyKnowledgeBase:
             raise RuntimeError("ensure_index must run before search")
         return self._store.similarity_search_with_relevance_scores(query, k=limit)
 
-    def _lexical_ranking(self, query: str) -> list[tuple[Document, float]]      :
+    def _lexical_ranking(self, query: str) -> list[tuple[Document, float]]:
         if self._chunks is None:
             raise RuntimeError("ensure_index must run before search")
         scored = [(document, _lexical_score(query, document)) for document in self._chunks]

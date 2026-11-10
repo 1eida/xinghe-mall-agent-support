@@ -13,9 +13,7 @@ RUN uv sync --frozen --only-group client \
 
 COPY src/client/ ./client/
 COPY src/schema/ ./schema/
-COPY src/voice/ ./voice/
 COPY src/streamlit_app.py ./
-COPY src/mysql_browser.py ./
 
 EXPOSE 8501
 

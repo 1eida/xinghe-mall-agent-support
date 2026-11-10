@@ -115,7 +115,7 @@ def test_non_confirmation_rejects_write_action():
 def test_clear_business_intents_get_deterministic_tool_routing():
     assert _forced_tool_for_message("七天无理由退款需要满足什么条件？") == "search_policy"
     assert (
-        _forced_tool_for_message("查询订单 OL099422，手机号后四位 3623，并告诉我物流是否延迟")
+        _forced_tool_for_message("查询订单 ORD1001，手机号后四位 8821，并告诉我物流是否延迟")
         == "get_order_status"
     )
     assert (

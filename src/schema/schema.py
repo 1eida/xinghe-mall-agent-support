@@ -1,9 +1,7 @@
 from typing import Any, Literal, NotRequired
 
-from pydantic import BaseModel, Field, SerializeAsAny
+from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
-
-from schema.models import AllModelEnum, AnthropicModelName, OpenAIModelName
 
 
 class AgentInfo(BaseModel):
@@ -11,11 +9,11 @@ class AgentInfo(BaseModel):
 
     key: str = Field(
         description="Agent key.",
-        examples=["research-assistant"],
+        examples=["customer-support"],
     )
     description: str = Field(
         description="Description of the agent.",
-        examples=["A research assistant for generating research papers."],
+        examples=["商城政策、订单、退款资格与客服工单助手。"],
     )
 
 
@@ -25,14 +23,14 @@ class ServiceMetadata(BaseModel):
     agents: list[AgentInfo] = Field(
         description="List of available agents.",
     )
-    models: list[AllModelEnum] = Field(
+    models: list[str] = Field(
         description="List of available LLMs.",
     )
     default_agent: str = Field(
         description="Default agent used when none is specified.",
-        examples=["research-assistant"],
+        examples=["customer-support"],
     )
-    default_model: AllModelEnum = Field(
+    default_model: str = Field(
         description="Default model used when none is specified.",
     )
 
@@ -42,13 +40,13 @@ class UserInput(BaseModel):
 
     message: str = Field(
         description="User input to the agent.",
-        examples=["What is the weather in Tokyo?"],
+        examples=["查询订单 ORD1001，手机号后四位 8821"],
     )
-    model: SerializeAsAny[AllModelEnum] | None = Field(
+    model: str | None = Field(
         title="Model",
-        description="LLM Model to use for the agent. Defaults to the default model set in the settings of the service.",
+        description="Configured model name. The service runs one model selected at startup.",
         default=None,
-        examples=[OpenAIModelName.GPT_5_NANO, AnthropicModelName.HAIKU_45],
+        examples=["qwen-plus", "mock"],
     )
     thread_id: str | None = Field(
         description="Thread ID to persist and continue a multi-turn conversation.",
@@ -63,7 +61,7 @@ class UserInput(BaseModel):
     agent_config: dict[str, Any] = Field(
         description="Additional configuration to pass through to the agent",
         default={},
-        examples=[{"spicy_level": 0.8}],
+        examples=[{}],
     )
 
 
@@ -134,32 +132,6 @@ class ChatMessage(BaseModel):
 
     def pretty_print(self) -> None:
         print(self.pretty_repr())  # noqa: T201
-
-
-class Feedback(BaseModel):  # type: ignore[no-redef]
-    """Feedback for a run, to record to LangSmith."""
-
-    run_id: str = Field(
-        description="Run ID to record feedback for.",
-        examples=["847c6285-8fc9-4560-a83f-4e6285809254"],
-    )
-    key: str = Field(
-        description="Feedback key.",
-        examples=["human-feedback-stars"],
-    )
-    score: float = Field(
-        description="Feedback score.",
-        examples=[0.8],
-    )
-    kwargs: dict[str, Any] = Field(
-        description="Additional feedback kwargs, passed to LangSmith.",
-        default={},
-        examples=[{"comment": "In-line human feedback"}],
-    )
-
-
-class FeedbackResponse(BaseModel):
-    status: Literal["success"] = "success"
 
 
 class ChatHistoryInput(BaseModel):

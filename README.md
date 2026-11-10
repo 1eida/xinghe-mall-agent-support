@@ -1,126 +1,89 @@
-# 星河商城agent客服
+# 星河商城 Agent 客服
 
-这是一个基于开源项目建立的独立学习与改造项目。当前版本在本机运行，以千问模型、政策知识库和模拟订单数据体验电商客服流程。
+基于 LangGraph、FastAPI 和 Streamlit 的文字客服，保留政策检索、订单查询、退款资格判断、人工确认工单和会话恢复。支持真实 Qwen 工具调用及无需模型 API 的 Mock 模式，订单、工单与会话使用 SQLite。
 
-本地使用方法与模块说明见 [项目使用与模块地图](项目使用与模块地图.md)。目前已完成本地环境配置，并体验政策问答、订单查询、退款资格判断和经确认的工单创建；各项能力仍需持续测试和完善。当前本地部署使用 SQLite 演示数据；下方上游项目对 MySQL、Docker 和评测结果的介绍，不代表本地已完成同样的部署或验证。
+## 本地运行
 
-## 项目来源
+安装 Python 3.12+ 和 [uv](https://docs.astral.sh/uv/getting-started/installation/)，在仓库根目录执行：
 
-(https://github.com/JoshuaC215/agent-service-toolkit) 进行二次开发。保留仓库中的 [MIT 许可证及原版权声明](LICENSE)。
-
-以下是上游电商客服项目的功能和评测说明，其中的功能、评测数据与部署方式需结合本地配置及后续实际验证理解。
-
-## 上游项目说明：电商智能客服与工单协同 Agent
-
-一个面向电商客服场景的 AI 应用工程项目，覆盖政策问答、订单查询、退款资格判断和
-人工工单协同。项目基于 LangGraph、FastAPI、Qwen、Chroma 与 MySQL 构建，并重点
-验证 RAG 效果、工具调用可靠性、写操作安全和容器化交付。
-
-> 项目用于本地学习、测试和作品展示，未在真实生产环境上线，也不包含真实客户数据。
-
-## 项目亮点
-
-- 使用 LangGraph 和 Qwen Function Calling 编排政策检索、订单查询、退款判断、工单创建
-  4 类工具，支持多轮对话、Checkpoint、Human-in-the-loop 确认与中断恢复。
-- 构建覆盖 16 类电商政策的 BGE + Chroma 混合 RAG，融合词法检索和向量检索，并加入
-  相关度拒答机制。
-- 在 72 条分层评测用例上，hybrid Hit@1 为 93.75%、Hit@3 为 100%、MRR@3 为
-  96.61%，8 条越界问题全部正确拒答，P95 检索延迟为 13.47 ms。
-- 将 99,441 笔 Olist 匿名公开订单和 112,650 条订单明细迁移至 MySQL，使用外键、索引、
-  批量写入与源文件 SHA-256 实现可重复、幂等的数据迁移。
-- 对订单查询统一身份校验失败响应；工单写入同时使用 HITL 和幂等键，降低越权查询与
-  重复写入风险。
-- 使用 Docker Compose 编排 MySQL、一次性数据迁移、FastAPI、Streamlit 和只读数据库
-  浏览器 5 个组件。
-
-## 架构
-
-```mermaid
-flowchart LR
-    U["用户 / Streamlit"] --> API["FastAPI + SSE"]
-    API --> G["LangGraph Agent"]
-    G --> LLM["Qwen"]
-    G --> RAG["政策 RAG"]
-    G --> TOOLS["订单 / 退款 / 工单工具"]
-    RAG --> BGE["BGE Embedding"]
-    RAG --> CHROMA["Chroma"]
-    TOOLS --> MYSQL["MySQL"]
-    G --> CP["SQLite Checkpoint"]
+```sh
+uv sync --frozen
 ```
 
-## 评测结果
+复制 `.env.example` 为 `.env`（Linux/macOS：`cp .env.example .env`；PowerShell：`Copy-Item .env.example .env`）。默认 `CUSTOMER_SUPPORT_MODE=mock`，无需模型密钥。
 
-### RAG 检索
+在两个终端分别启动后端和页面，工作目录都使用仓库根目录：
 
-| 方法 | Hit@1 | Hit@3 | MRR@3 | 越界拒答率 | P95 延迟 |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| lexical | 87.50% | 96.88% | 91.67% | 75.00% | 3.99 ms |
-| dense | 87.50% | 100.00% | 93.49% | 100.00% | 13.09 ms |
-| hybrid | **93.75%** | **100.00%** | **96.61%** | **100.00%** | 13.47 ms |
-
-评测集包含 64 条相关问题和 8 条越界问题，详细结果见
-[`data/evaluation/rag_report.json`](data/evaluation/rag_report.json)。这些指标来自项目构造的
-固定评测集，只代表本项目实验结果，不能外推为线上业务准确率。
-
-### Agent 业务验收
-
-路由、退款规则、身份校验和工单幂等共 34 条确定性验收用例，当前为 34/34 通过。详细
-结果见 [`data/evaluation/agent_report.json`](data/evaluation/agent_report.json)。
-
-## 快速开始
-
-Windows 用户可从 [`START_HERE.md`](START_HERE.md) 开始。默认使用离线 Mock Agent，
-不需要模型 API Key：
-
-```powershell
-.\scripts\setup_demo.cmd
-.\scripts\start_demo.cmd
+```sh
+uv run python src/run_service.py
 ```
 
-浏览器访问 <http://127.0.0.1:8501>。
-
-运行项目相关测试与评测：
-
-```powershell
-.\scripts\run_tests.cmd
-.\scripts\evaluate_rag.cmd
-.\.venv\Scripts\python.exe scripts\evaluate_agent.py
+```sh
+uv run streamlit run src/streamlit_app.py
 ```
 
-切换至真实 Qwen Agent 时，仅在本地 `.env` 中填写 Key。可复制
-`.env.qwen.example`，不要将真实凭据提交到 Git。
+打开 <http://127.0.0.1:8501>；API 文档为 <http://127.0.0.1:8080/docs>。两个终端按 `Ctrl+C` 停止。
 
-## Docker + MySQL
+可直接尝试：
 
-完整部署需要 Docker Desktop。项目不会提交 Olist 原始数据或生成后的数据库，数据准备
-方式见 [`docs/data/olist-dataset.md`](docs/data/olist-dataset.md)。
+- `查询订单 ORD1001，手机号后四位 8821`：演示订单运输中。
+- `订单 ORD1002，手机号后四位 8821，能退款吗`：符合演示退款规则。
+- `订单 ORD1003，手机号后四位 8821，能退款吗`：超过退款期限。
+- `为订单 ORD1001 创建物流异常工单，手机号后四位 8821`：收到确认提示后回复“确认”或“取消”。
+- `七天无理由退款需要满足什么条件`：检索政策知识库。
 
-```powershell
-.\scripts\start_docker.cmd
-.\scripts\verify_docker.cmd
-.\scripts\verify_qwen_docker.cmd
+Mock 的订单、退款与工单流程不依赖外部模型；政策检索仍使用本地 BGE + Chroma，首次运行需要下载嵌入模型，之后复用 `data/models/` 缓存。Mock 用于验证固定业务流程，回答能力有限。
+
+## 使用 Qwen
+
+在 `.env` 中设置以下配置并重启后端：
+
+```dotenv
+CUSTOMER_SUPPORT_MODE=qwen
+DASHSCOPE_API_KEY=你的密钥
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+DASHSCOPE_MODEL=qwen-plus
 ```
 
-详细说明见 [`docs/deployment/docker-mysql.md`](docs/deployment/docker-mysql.md)。
+按阿里云工作空间要求调整 URL 和模型名称。`auto` 模式有 Key 时使用 Qwen，否则使用 Mock；`qwen` 模式要求有效配置。`.env` 不进入版本控制。
 
-## 主要目录
+## Docker
 
-```text
-src/customer_support/    RAG、业务规则、订单与工单数据访问
-src/agents/              LangGraph 客服 Agent 与工具路由
-src/service/             FastAPI、SSE、鉴权与就绪检查
-scripts/                 数据迁移、评测和部署验收脚本
-tests/customer_support/  客服场景单元测试
-data/evaluation/         固定评测集与结果
-data/policies/           示例政策知识库
-docs/                    数据、部署和问题排查记录
+准备 `.env` 后执行：
+
+```sh
+docker compose up --build -d
 ```
 
-## 安全与边界
+页面端口仍为 8501，API 为 8080。Compose 仅运行后端和文字页面；命名卷保存 SQLite 数据、Chroma 索引及模型缓存，`docker compose down` 停止服务并保留数据。
 
-- `.env`、数据库、原始数据、模型缓存、Chroma 数据和本地日志均被 Git 忽略。
-- Olist 数据为匿名公开数据；演示手机号后四位由匿名 ID 确定性生成，不是真实手机号。
-- API 支持 Bearer 鉴权，但本地 Compose 默认只绑定 `127.0.0.1`，未作为生产部署方案。
-- 当前尚未完成独立标注集验证、并发压测、线上监控和灾难恢复演练。
+## 代码与数据
 
+| 路径 | 职责 |
+| --- | --- |
+| `src/agents/` | Qwen / Mock 客服图、工具路由与工单审批 |
+| `src/customer_support/` | 政策 RAG、SQLite 订单工单及退款规则 |
+| `src/service/` | FastAPI、SSE、鉴权、历史与中断恢复 |
+| `src/client/`、`src/streamlit_app.py` | HTTP 客户端和文字页面 |
+| `src/core/`、`src/schema/`、`src/memory/` | 配置、消息协议与 SQLite checkpoint |
+| `data/policies/` | 可编辑的示例政策；修改后检索时更新索引 |
+| `data/evaluation/` | 固定评测用例 |
+| `tests/`、`scripts/` | 回归测试与两项评测入口 |
 
+默认会话文件为 `data/checkpoints.db`，订单和工单文件为 `data/customer_support.db`。页面提供会话恢复链接；恢复时依赖同一后端保存的 checkpoint。
+
+## 验证
+
+```sh
+uv run pytest
+uv run ruff check
+uv run mypy src/
+uv run python scripts/evaluate_agent.py
+uv run python scripts/evaluate_rag.py
+```
+
+Agent 评测使用临时 SQLite 库验证路由、退款、身份校验和工单幂等；RAG 评测比较 lexical、dense 和 hybrid，首次需要下载模型。评测会覆盖对应 `data/evaluation/*_report.json`。报告仅覆盖固定演示用例。
+
+## 来源与边界
+
+基于 [agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit) 改造，保留 [MIT 许可证与版权声明](LICENSE)。项目使用演示订单和简化退款规则，面向本地学习与开发。`AUTH_SECRET` 可启用 Bearer 鉴权；配置后页面与后端使用同一值。当前未进行生产环境验证。

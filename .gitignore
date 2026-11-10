@@ -199,10 +199,9 @@ data/logs/
 *.sqlite3
 *.bin
 
-# Private Credentials, ignore everything in the folder but the .gitkeep file
-privatecredentials/*
-!privatecredentials/.gitkeep
-
 # Local review and personal preparation artifacts
 tmp/
 reports/
+
+# Generated evaluation reports
+data/evaluation/*_report.json

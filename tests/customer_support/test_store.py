@@ -1,33 +1,11 @@
 from pathlib import Path
 
-import pytest
-
 from customer_support.store import (
     create_support_ticket,
     get_order_status,
     initialize_database,
     refund_eligibility,
 )
-
-
-def test_mysql_backend_dispatch(monkeypatch: pytest.MonkeyPatch):
-    import customer_support.mysql_store as mysql_store
-
-    monkeypatch.setenv("BUSINESS_DATABASE_TYPE", "mysql")
-    monkeypatch.setattr(
-        mysql_store,
-        "get_order_status",
-        lambda order_id, phone_last4: {
-            "ok": True,
-            "order_id": order_id,
-            "phone_last4": phone_last4,
-            "backend": "mysql",
-        },
-    )
-
-    result = get_order_status("ORD1001", "8821")
-
-    assert result["backend"] == "mysql"
 
 
 def test_seed_orders_and_identity_check(tmp_path: Path):

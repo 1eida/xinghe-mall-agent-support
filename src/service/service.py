@@ -7,30 +7,22 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from fastapi.responses import StreamingResponse
 from fastapi.routing import APIRoute
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langchain_core._api import LangChainBetaWarning
-from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, AnyMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
-from langfuse import Langfuse  # type: ignore[import-untyped]
-from langfuse.langchain import (
-    CallbackHandler,  # type: ignore[import-untyped]
-)
 from langgraph.types import Command, Interrupt
-from langsmith import Client as LangsmithClient
-from langsmith import uuid7
 
 from agents import DEFAULT_AGENT, AgentGraph, get_agent, get_all_agent_info, load_agent
 from core import settings
-from memory import initialize_database, initialize_store
+from memory import initialize_database
 from schema import (
     ChatHistory,
     ChatHistoryInput,
     ChatMessage,
-    Feedback,
-    FeedbackResponse,
     ServiceMetadata,
     StreamInput,
     UserInput,
@@ -112,29 +104,18 @@ def verify_bearer(
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """
-    Configurable lifespan that initializes the appropriate database checkpointer, store,
-    and agents with async loading - for example for starting up MCP clients.
-    """
+    """Load the customer-support agent and attach persistent SQLite checkpoints."""
     try:
-        # Initialize both checkpointer (for short-term memory) and store (for long-term memory)
-        async with initialize_database() as saver, initialize_store() as store:
-            # Set up both components
+        async with initialize_database() as saver:
             saver_setup = getattr(saver, "setup", None)
             if saver_setup is not None:
                 await saver_setup()
-            # Only setup store for Postgres as InMemoryStore doesn't need setup
-            store_setup = getattr(store, "setup", None)
-            if store_setup is not None:
-                await store_setup()
-
             if not settings.AUTH_SECRET:
                 logger.warning(
                     "AUTH_SECRET is not configured — all API endpoints are unauthenticated. "
                     "Set AUTH_SECRET in your environment to enable bearer token authentication."
                 )
 
-            # Configure agents with both memory components and async loading
             agents = get_all_agent_info()
             for a in agents:
                 try:
@@ -147,11 +128,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
                 agent = get_agent(a.key)
                 # Set checkpointer for thread-scoped memory (conversation history)
                 agent.checkpointer = saver
-                # Set store for long-term memory (cross-conversation knowledge)
-                agent.store = store
             yield
     except Exception as e:
-        logger.error(f"Error during database/store/agents initialization: {e}")
+        logger.error(f"Error during database/agent initialization: {e}")
         raise
 
 
@@ -174,25 +153,24 @@ async def info() -> ServiceMetadata:
     )
 
 
+def _validate_model(model: str | None) -> None:
+    if model is not None and model != settings.DEFAULT_MODEL:
+        raise HTTPException(status_code=422, detail="Only the configured model is available")
+
+
 async def _handle_input(user_input: UserInput, agent: AgentGraph) -> tuple[dict[str, Any], UUID]:
     """
     Parse user input and handle any required interrupt resumption.
     Returns kwargs for agent invocation and the run_id.
     """
-    run_id = uuid7()                                    #当前请求id
-    thread_id = user_input.thread_id or str(uuid4())    #当前对话id
-    user_id = user_input.user_id or str(uuid4())        #当前用户id
+    run_id = uuid4()  # 当前请求id
+    thread_id = user_input.thread_id or str(uuid4())  # 当前对话id
+    user_id = user_input.user_id or str(uuid4())  # 当前用户id
 
     configurable = {"thread_id": thread_id, "user_id": user_id}
+    _validate_model(user_input.model)
     if user_input.model is not None:
         configurable["model"] = user_input.model
-
-    callbacks: list[Any] = []
-    if settings.LANGFUSE_TRACING:
-        # Initialize Langfuse CallbackHandler for Langchain (tracing)
-        langfuse_handler = CallbackHandler()
-
-        callbacks.append(langfuse_handler)
 
     if user_input.agent_config:
         # Check for reserved keys (including 'model' even if not in configurable)
@@ -207,7 +185,6 @@ async def _handle_input(user_input: UserInput, agent: AgentGraph) -> tuple[dict[
     config = RunnableConfig(
         configurable=configurable,
         run_id=run_id,
-        callbacks=callbacks,
     )
 
     # Check for interrupts that need to be resumed
@@ -240,14 +217,11 @@ async def invoke(user_input: UserInput, agent_id: str = DEFAULT_AGENT) -> ChatMe
 
     If agent_id is not provided, the default agent will be used.
     Use thread_id to persist and continue a multi-turn conversation. run_id kwarg
-    is also attached to messages for recording feedback.
+    is also attached to messages for request tracing.
     Use user_id to persist and continue a conversation across multiple threads.
     """
-    # NOTE: Currently this only returns the last message or interrupt.
-    # In the case of an agent outputting multiple AIMessages (such as the background step
-    # in interrupt-agent, or a tool step in research-assistant), it's omitted. Arguably,
-    # you'd want to include it. You could update the API to return a list of ChatMessages
-    # in that case.
+    # This endpoint returns the final message or approval prompt; /stream includes
+    # intermediate tool calls and results.
     agent: AgentGraph = get_agent(agent_id)
     kwargs, run_id = await _handle_input(user_input, agent)
 
@@ -316,18 +290,6 @@ async def message_generator(
                         continue
                     updates = updates or {}
                     update_messages = updates.get("messages", [])
-                    # special cases for using langgraph-supervisor library
-                    if "supervisor" in node or "sub-agent" in node:
-                        # the only tools that come from the actual agent are the handoff and handback tools
-                        if isinstance(update_messages[-1], ToolMessage):
-                            if "sub-agent" in node and len(update_messages) > 1:
-                                # If this is a sub-agent, we want to keep the last 2 messages - the handback tool, and it's result
-                                update_messages = update_messages[-2:]
-                            else:
-                                # If this is a supervisor, we want to keep the last message only - the handoff result. The tool comes from the 'agent' node.
-                                update_messages = [update_messages[-1]]
-                        else:
-                            update_messages = []
                     new_messages.extend(update_messages)
 
             if stream_mode == "custom":
@@ -425,35 +387,16 @@ async def stream(user_input: StreamInput, agent_id: str = DEFAULT_AGENT) -> Stre
 
     If agent_id is not provided, the default agent will be used.
     Use thread_id to persist and continue a multi-turn conversation. run_id kwarg
-    is also attached to all messages for recording feedback.
+    is also attached to all messages for request tracing.
     Use user_id to persist and continue a conversation across multiple threads.
 
     Set `stream_tokens=false` to return intermediate messages but not token-by-token.
     """
+    _validate_model(user_input.model)
     return StreamingResponse(
         message_generator(user_input, agent_id),
         media_type="text/event-stream",
     )
-
-
-@router.post("/feedback")
-async def feedback(feedback: Feedback) -> FeedbackResponse:
-    """
-    Record feedback for a run to LangSmith.
-
-    This is a simple wrapper for the LangSmith create_feedback API, so the
-    credentials can be stored and managed in the service rather than the client.
-    See: https://api.smith.langchain.com/redoc#tag/feedback/operation/create_feedback_api_v1_feedback_post
-    """
-    client = LangsmithClient()
-    kwargs = feedback.kwargs or {}
-    client.create_feedback(
-        run_id=feedback.run_id,
-        key=feedback.key,
-        score=feedback.score,
-        **kwargs,
-    )
-    return FeedbackResponse()
 
 
 @router.post("/history")
@@ -477,59 +420,20 @@ async def history(input: ChatHistoryInput) -> ChatHistory:
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-
-    health_status = {"status": "ok"}
-
-    if settings.LANGFUSE_TRACING:
-        try:
-            langfuse = Langfuse()
-            health_status["langfuse"] = "connected" if langfuse.auth_check() else "disconnected"
-        except Exception as e:
-            logger.error(f"Langfuse connection error: {e}")
-            health_status["langfuse"] = "disconnected"
-
-    return health_status
+    return {"status": "ok"}
 
 
 @app.get("/ready")
 def readiness_check():
-    """Readiness probe that also verifies the configured business database."""
-    import os
+    """Check that the SQLite business database can be initialized and opened."""
+    from customer_support.store import initialize_database as initialize_business_database
 
-    if os.getenv("BUSINESS_DATABASE_TYPE", "sqlite").lower() != "mysql":
-        return {"status": "ready", "business_database": "sqlite"}
     try:
-        from customer_support.mysql_store import database_healthcheck
-
-        return database_healthcheck()
+        initialize_business_database()
     except Exception as error:
         logger.error("Business database readiness check failed: %s", error)
         raise HTTPException(status_code=503, detail="Business database is not ready") from error
-
-
-@app.get("/database/tables")
-def database_tables():
-    """List tables for the local read-only database learning page."""
-    from customer_support.mysql_store import list_database_tables
-
-    return {"tables": list_database_tables()}
-
-
-@app.get("/database/tables/{table}")
-def database_table_rows(
-    table: str,
-    limit: int = Query(default=20, ge=1, le=100),
-    offset: int = Query(default=0, ge=0),
-    order_alias: str | None = None,
-):
-    """Return a read-only page; arbitrary SQL and write operations are not exposed."""
-    from customer_support.mysql_store import browse_database_table
-
-    try:
-        return browse_database_table(table, limit, offset, order_alias)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+    return {"status": "ready", "business_database": "sqlite"}
 
 
 app.include_router(router)

@@ -1,14 +1,12 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-import langsmith
 import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
 from langgraph.types import Interrupt, StateSnapshot
 
 from agents.agents import Agent
 from schema import ChatHistory, ChatMessage, ServiceMetadata
-from schema.models import OpenAIModelName
 
 
 def test_invoke(test_client, mock_agent) -> None:
@@ -70,7 +68,7 @@ def test_invoke_model_param(test_client, mock_agent) -> None:
     """Test that the model parameter is correctly passed to the agent if specified."""
     QUESTION = "What is the weather in Tokyo?"
     ANSWER = "The weather in Tokyo is sunny."
-    CUSTOM_MODEL = "claude-sonnet-4-5"
+    CUSTOM_MODEL = "mock"
     mock_agent.ainvoke.return_value = [("values", {"messages": [AIMessage(content=ANSWER)]})]
 
     response = test_client.post("/invoke", json={"message": QUESTION, "model": CUSTOM_MODEL})
@@ -137,7 +135,7 @@ def test_invoke_custom_agent_config(test_client, mock_agent) -> None:
     assert output.content == ANSWER
 
     # Verify a reserved key in agent_config throws a validation error
-    INVALID_CONFIG = {"model": "gpt-5-nano"}
+    INVALID_CONFIG = {"model": "mock"}
     response = test_client.post(
         "/invoke", json={"message": QUESTION, "agent_config": INVALID_CONFIG}
     )
@@ -164,25 +162,6 @@ def test_invoke_interrupt(test_client, mock_agent) -> None:
     output = ChatMessage.model_validate(response.json())
     assert output.type == "ai"
     assert output.content == INTERRUPT
-
-
-@patch("service.service.LangsmithClient")
-def test_feedback(mock_client: langsmith.Client, test_client) -> None:
-    ls_instance = mock_client.return_value
-    ls_instance.create_feedback.return_value = None
-    body = {
-        "run_id": "847c6285-8fc9-4560-a83f-4e6285809254",
-        "key": "human-feedback-stars",
-        "score": 0.8,
-    }
-    response = test_client.post("/feedback", json=body)
-    assert response.status_code == 200
-    assert response.json() == {"status": "success"}
-    ls_instance.create_feedback.assert_called_once_with(
-        run_id="847c6285-8fc9-4560-a83f-4e6285809254",
-        key="human-feedback-stars",
-        score=0.8,
-    )
 
 
 def test_history(test_client, mock_agent) -> None:
@@ -361,8 +340,8 @@ def test_info(test_client, mock_settings) -> None:
 
     base_agent = Agent(description="A base agent.", graph_like=None)
     mock_settings.AUTH_SECRET = None
-    mock_settings.DEFAULT_MODEL = OpenAIModelName.GPT_5_NANO
-    mock_settings.AVAILABLE_MODELS = {OpenAIModelName.GPT_5_NANO, OpenAIModelName.GPT_5_MINI}
+    mock_settings.DEFAULT_MODEL = "mock"
+    mock_settings.AVAILABLE_MODELS = {"mock"}
     with patch.dict("agents.agents.agents", {"base-agent": base_agent}, clear=True):
         response = test_client.get("/info")
         assert response.status_code == 200
@@ -373,8 +352,8 @@ def test_info(test_client, mock_settings) -> None:
     assert output.agents[0].key == "base-agent"
     assert output.agents[0].description == "A base agent."
 
-    assert output.default_model == OpenAIModelName.GPT_5_NANO
-    assert output.models == [OpenAIModelName.GPT_5_MINI, OpenAIModelName.GPT_5_NANO]
+    assert output.default_model == "mock"
+    assert output.models == ["mock"]
 
 
 def test_readiness_uses_sqlite_by_default(test_client, monkeypatch) -> None:
@@ -389,41 +368,14 @@ def test_readiness_uses_sqlite_by_default(test_client, monkeypatch) -> None:
     }
 
 
-def test_readiness_checks_mysql(test_client, monkeypatch) -> None:
-    monkeypatch.setenv("BUSINESS_DATABASE_TYPE", "mysql")
-    result = {"status": "ready", "backend": "mysql", "order_count": 99441}
-
-    with patch(
-        "customer_support.mysql_store.database_healthcheck",
-        return_value=result,
-    ):
+def test_readiness_reports_database_failure(test_client) -> None:
+    with patch("customer_support.store.initialize_database", side_effect=OSError("unwritable")):
         response = test_client.get("/ready")
 
-    assert response.status_code == 200
-    assert response.json() == result
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Business database is not ready"}
 
 
-def test_read_only_database_browser_endpoints(test_client) -> None:
-    page = {
-        "table": "olist_orders",
-        "total": 99441,
-        "rows": [{"order_alias": "OL099422", "status_zh": "运输中"}],
-    }
-    with (
-        patch(
-            "customer_support.mysql_store.list_database_tables",
-            return_value=["olist_orders"],
-        ),
-        patch(
-            "customer_support.mysql_store.browse_database_table",
-            return_value=page,
-        ),
-    ):
-        tables_response = test_client.get("/database/tables")
-        rows_response = test_client.get(
-            "/database/tables/olist_orders",
-            params={"limit": 20, "offset": 0, "order_alias": "OL099422"},
-        )
-
-    assert tables_response.json() == {"tables": ["olist_orders"]}
-    assert rows_response.json() == page
+def test_stream_rejects_unconfigured_model(test_client, mock_agent) -> None:
+    response = test_client.post("/stream", json={"message": "查询订单", "model": "other"})
+    assert response.status_code == 422

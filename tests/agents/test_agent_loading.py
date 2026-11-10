@@ -20,7 +20,7 @@ class TestAgentLoading:
     @pytest.mark.asyncio
     async def test_load_agent_lazy_agent(self):
         """Test loading a lazy agent."""
-        # Mock the GitHub MCP agent
+        # Mock a lazily loaded agent.
         mock_agent = Mock(spec=LazyLoadingAgent)
         mock_agent.load = AsyncMock()
 
